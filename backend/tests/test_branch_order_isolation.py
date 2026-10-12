@@ -680,3 +680,56 @@ def test_legacy_branch_rename_preserves_branch_ids_and_updates_order_labels(monk
     finally:
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
+
+
+def test_default_branches_are_created_once_when_database_is_empty(monkeypatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(database, "engine", engine)
+    monkeypatch.setattr(database, "SessionLocal", sessions)
+    try:
+        database.ensure_branch_schema()
+        database.ensure_branch_schema()
+
+        with sessions() as db:
+            assert [
+                branch.name
+                for branch in db.query(Branch).order_by(Branch.id).all()
+            ] == ["Kallu Chock", "Kornagi 2"]
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def test_default_branches_are_not_created_over_unmapped_legacy_orders(monkeypatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    sessions = sessionmaker(bind=engine)
+    monkeypatch.setattr(database, "SessionLocal", sessions)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE orders"))
+            connection.execute(text(
+                "CREATE TABLE orders (id INTEGER PRIMARY KEY, branch_id INTEGER)"
+            ))
+            connection.execute(text(
+                "INSERT INTO orders (id, branch_id) VALUES (1, NULL)"
+            ))
+
+        database.ensure_default_branches()
+
+        with sessions() as db:
+            assert db.query(Branch).count() == 0
+            assert db.query(Order.id).one() == (1,)
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

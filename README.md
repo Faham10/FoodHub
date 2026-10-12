@@ -128,7 +128,7 @@ if [ ! -f .env ]; then cp .env.example .env; fi
 | `SECRET_KEY` | Random secret for signing JWTs. Generate with `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `ALGORITHM` | JWT algorithm (default `HS256`) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime in minutes |
-| `FRONTEND_URL` | Used for CORS, e.g. `http://localhost:5173` |
+| `FRONTEND_URL` | Comma-separated allowed frontend origins, e.g. `http://localhost:5173`; include `https://food-hub-alpha-five.vercel.app` for production |
 | `BRANCH1_ADMIN_EMAIL` / `BRANCH1_ADMIN_PASSWORD` | Unique credentials for the Kallu Chock branch admin |
 | `BRANCH2_ADMIN_EMAIL` / `BRANCH2_ADMIN_PASSWORD` | Unique credentials for the Korangi 2 branch admin |
 
@@ -136,17 +136,18 @@ Keep `backend/.env` private; `.env.example` is a template only. Configure two se
 
 ### Optional development seed
 
-Tables are auto-created on app startup. The seed script is only for a new, disposable development database: it adds sample data and can update branch assignments on existing products and orders. It also creates missing branch-admin accounts from the branch-specific environment settings, but does not change existing assigned branch-admin accounts. Do not run it against an existing or production database to configure credentials. For an existing database, start the backend without running the seed script.
+Tables and the two canonical branches are initialized on app startup. Branch initialization is idempotent, preserves existing branch IDs and data, and does not create branches over unmapped legacy orders. The seed script adds sample categories, products, and missing branch-admin accounts; it does not change existing admin assignments, assigned products, or orders. Review its behavior and existing account/product assignments before running it against an existing database. For production, run it only when missing catalog/admin data needs to be seeded, with the two branch-admin credentials configured privately in Render.
 
 ```bash
 python -m app.seed
 ```
 
-This creates:
+On a new database, this creates:
 - 12 categories (Burgers, Pizza, Fries, Shawarma, Chicken, Sandwiches, Nuggets, Wings, Rolls, Drinks, Desserts, Deals)
 - 34 sample products with realistic PKR pricing
 - Two branch-admin accounts using credentials configured privately in `backend/.env` (passwords are bcrypt-hashed)
-- Seed execution is idempotent and creates exactly the Kallu Chock and Korangi 2 branches.
+- Branch seeding reuses the existing Kallu Chock and Korangi 2 rows and refuses to duplicate legacy/canonical pairs.
+- Existing orders retain their branch assignments; unassigned orders are backfilled by the schema migration using their products when possible.
 
 ### Run the backend
 
@@ -178,6 +179,8 @@ To build for production:
 npm run build
 npm run preview
 ```
+
+For Vercel, set `VITE_API_URL=https://foodhub-6rnn.onrender.com/api` in the project’s build environment and redeploy after changing it. The Render backend must allow the Vercel site origin through `FRONTEND_URL`.
 
 ---
 

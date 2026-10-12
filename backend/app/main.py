@@ -21,7 +21,12 @@ ensure_branch_schema()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=sorted({
+        *(origin.strip().rstrip("/") for origin in settings.FRONTEND_URL.split(",") if origin.strip()),
+        "https://food-hub-alpha-five.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    }),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -85,6 +85,7 @@ def ensure_branch_schema(backfill_orders=True):
             ))
 
     rename_legacy_branches()
+    ensure_default_branches()
 
     if backfill_orders:
         migrate_order_branch_data()
@@ -157,6 +158,41 @@ def rename_legacy_branches():
                 Order.branch_name == old_name,
             ).update({Order.branch_name: new_name}, synchronize_session=False)
         db.commit()
+
+
+def ensure_default_branches():
+    from app.models.branch import Branch
+    from app.models.order import Order
+
+    expected_names = ("Kallu Chock", "Kornagi 2")
+    with SessionLocal() as db:
+        if (
+            not db.query(Branch.id).first()
+            and db.query(Order.id).first()
+        ):
+            return
+
+        existing_names = {
+            name
+            for (name,) in db.query(Branch.name)
+            .filter(Branch.name.in_(expected_names))
+            .all()
+        }
+        for name in expected_names:
+            if name not in existing_names:
+                db.add(Branch(name=name, is_active=True))
+        try:
+            db.commit()
+        except IntegrityError as error:
+            db.rollback()
+            existing_names = {
+                name
+                for (name,) in db.query(Branch.name)
+                .filter(Branch.name.in_(expected_names))
+                .all()
+            }
+            if not set(expected_names).issubset(existing_names):
+                raise RuntimeError("Could not initialize the two default branches.") from error
 
 
 def migrate_order_branch_data():

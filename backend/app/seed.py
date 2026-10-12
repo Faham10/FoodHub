@@ -14,7 +14,6 @@ from app.models.user import User, UserRole
 from app.models.category import Category
 from app.models.product import Product
 from app.models.branch import Branch
-from app.models.order import Order
 from app.utils.security import hash_password
 from app.config import settings
 
@@ -194,9 +193,6 @@ def run():
             else:
                 branch.name = display_name
             branches[branch_key] = branch
-        db.query(Product).filter(Product.branch_id.is_(None)).update(
-            {Product.branch_id: branches["Branch 1"].id}, synchronize_session=False
-        )
         db.commit()
 
         category_map = {}
@@ -215,7 +211,13 @@ def run():
             product = db.query(Product).filter(Product.sku == sku).first()
             branch_id = branches["Branch 1" if index % 2 == 0 else "Branch 2"].id
             if product:
-                product.branch_id = branch_id
+                if product.branch_id is None:
+                    product.branch_id = branch_id
+                elif product.branch_id != branch_id:
+                    raise RuntimeError(
+                        f"Seed product '{sku}' is already assigned to branch "
+                        f"{product.branch_id}, not branch {branch_id}; it was not reassigned."
+                    )
                 continue
             product = Product(
                 name=name,
@@ -234,15 +236,6 @@ def run():
             db.add(product)
         db.commit()
 
-        for order in db.query(Order).all():
-            item_branch_ids = {
-                item.product.branch_id
-                for item in order.items
-                if item.product is not None and item.product.branch_id is not None
-            }
-            if len(item_branch_ids) == 1:
-                order.branch_id = item_branch_ids.pop()
-        db.commit()
         ensure_branch_schema()
 
         for name, email, password, branch_name in (
