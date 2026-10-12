@@ -74,7 +74,10 @@ def ensure_branch_schema(backfill_orders=True):
                 if column not in order_columns:
                     connection.execute(text(f"ALTER TABLE orders ADD COLUMN {column} {definition}"))
         if "users" in inspector.get_table_names():
-            connection.execute(text("UPDATE users SET role = 'branch_admin' WHERE role = 'admin'"))
+            connection.execute(text(
+                "UPDATE users SET role = 'branch_admin' "
+                "WHERE CAST(role AS VARCHAR) = 'admin'"
+            ))
         if "promotions" in inspector.get_table_names():
             connection.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_promotions_branch_system_key "
