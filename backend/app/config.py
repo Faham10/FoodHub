@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     FRONTEND_URL: str = "http://localhost:5173"
+    INITIALIZE_CATALOG_ON_STARTUP: bool = False
     BRANCH1_ADMIN_EMAIL: str | None = None
     BRANCH1_ADMIN_PASSWORD: str | None = None
     BRANCH2_ADMIN_EMAIL: str | None = None

@@ -1,4 +1,5 @@
 import os
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,9 +7,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import Base, engine, ensure_branch_schema
+from app.database import SessionLocal
 from app import models  # noqa: F401 ensures models are registered before create_all
 
 from app.routers import auth, products, categories, cart, wishlist, addresses, orders, admin, uploads, branches, promotions
+from app.seed import CatalogInitializationConflict, initialize_catalog_once
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Bismillah Food API",
@@ -18,6 +23,30 @@ app = FastAPI(
 
 # Auto-create tables if they don't exist yet (use Alembic migrations in production)
 ensure_branch_schema()
+
+@app.on_event("startup")
+def initialize_catalog_on_startup():
+    if not settings.INITIALIZE_CATALOG_ON_STARTUP:
+        return
+
+    db = SessionLocal()
+    try:
+        result = initialize_catalog_once(db)
+    except CatalogInitializationConflict as exc:
+        logger.error("One-time catalog initialization stopped: %s", exc)
+    else:
+        if result is None:
+            logger.info("One-time catalog initialization was already completed.")
+        else:
+            categories_created, products_created = result
+            logger.info(
+                "One-time catalog initialization completed: "
+                "%s categories and %s products inserted.",
+                categories_created,
+                products_created,
+            )
+    finally:
+        db.close()
 
 app.add_middleware(
     CORSMiddleware,

@@ -6,7 +6,8 @@ Run with:
 """
 import re
 
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, or_, text
+from sqlalchemy.orm import Session
 
 from app.database import Base, engine, SessionLocal, ensure_branch_schema
 from app import models  # noqa: F401  (ensures all models are registered)
@@ -14,6 +15,7 @@ from app.models.user import User, UserRole
 from app.models.category import Category
 from app.models.product import Product
 from app.models.branch import Branch
+from app.models.order import Order
 from app.utils.security import hash_password
 from app.config import settings
 
@@ -70,6 +72,208 @@ PRODUCTS = [
     ("Student Deal", "1 Burger, Fries and a Soft Drink at an unbeatable price.", 550, 450, "Deals", "DEL-002", 100, True, True),
     ("Party Deal", "3 Pizzas, Wings, Loaded Fries and 4 Drinks. Perfect for gatherings.", 4500, 3900, "Deals", "DEL-003", 25, False, False),
 ]
+
+CATALOG_INITIALIZATION_NAME = "sample_catalog_v1"
+
+
+class CatalogInitializationConflict(RuntimeError):
+    pass
+
+
+def _inspect_catalog_seed_state(db: Session):
+    branches = db.query(Branch).order_by(Branch.id).all()
+    expected_branch_names = set(BRANCH_NAMES.values())
+    if (
+        len(branches) != len(expected_branch_names)
+        or {branch.name for branch in branches} != expected_branch_names
+        or any(not branch.is_active for branch in branches)
+    ):
+        raise CatalogInitializationConflict(
+            "Expected exactly two active branches: Kallu Chock and Kornagi 2."
+        )
+
+    branch_ids = {branch.id for branch in branches}
+    branch_by_name = {branch.name: branch for branch in branches}
+    branch_names_by_id = {branch.id: branch.name for branch in branches}
+
+    for user in db.query(User).all():
+        if user.branch_id is not None and user.branch_id not in branch_ids:
+            raise CatalogInitializationConflict(
+                "An account references a branch outside the two expected branches."
+            )
+        if user.role == UserRole.branch_admin and user.branch_id not in branch_ids:
+            raise CatalogInitializationConflict(
+                "A branch-admin account has no valid branch assignment."
+            )
+
+    for order in db.query(Order).all():
+        if (
+            order.branch_id not in branch_names_by_id
+            or order.branch_name != branch_names_by_id[order.branch_id]
+        ):
+            raise CatalogInitializationConflict(
+                "An order has a missing, invalid, or inconsistent branch assignment."
+            )
+
+    categories = db.query(Category).all()
+    categories_by_id = {category.id: category for category in categories}
+    for category in categories:
+        if category.branch_id is not None and category.branch_id not in branch_ids:
+            raise CatalogInitializationConflict(
+                "A category references a branch outside the two expected branches."
+            )
+
+    products = db.query(Product).all()
+    products_by_sku = {}
+    for product in products:
+        if product.branch_id not in branch_ids:
+            raise CatalogInitializationConflict(
+                "A product has no valid branch assignment; no catalog data was changed."
+            )
+        category = categories_by_id.get(product.category_id)
+        if not category or category.branch_id not in (None, product.branch_id):
+            raise CatalogInitializationConflict(
+                "A product is linked to a missing or differently scoped category."
+            )
+        products_by_sku[product.sku] = product
+
+    category_by_name = {}
+    for name in CATEGORIES:
+        slug = slugify(name)
+        matches = db.query(Category).filter(
+            or_(
+                Category.slug == slug,
+                func.lower(Category.name) == name.casefold(),
+            )
+        ).all()
+        if len(matches) > 1:
+            raise CatalogInitializationConflict(
+                f"Multiple existing categories match the seed category '{name}'."
+            )
+        if matches:
+            category = matches[0]
+            if (
+                category.name != name
+                or category.slug != slug
+                or category.branch_id is not None
+                or not category.is_active
+            ):
+                raise CatalogInitializationConflict(
+                    f"The existing '{name}' category conflicts with the shared catalog."
+                )
+            category_by_name[name] = category
+
+    expected_product_branches = {}
+    for index, product_data in enumerate(PRODUCTS):
+        category_name = product_data[4]
+        branch_name = BRANCH_NAMES["Branch 1" if index % 2 == 0 else "Branch 2"]
+        sku = product_data[5]
+        expected_product_branches[sku] = branch_name
+        existing = products_by_sku.get(sku)
+        if existing:
+            if existing.branch_id != branch_by_name[branch_name].id:
+                raise CatalogInitializationConflict(
+                    f"Seed SKU '{sku}' is assigned to a different branch."
+                )
+            existing_category = categories_by_id[existing.category_id]
+            if existing_category.slug != slugify(category_name):
+                raise CatalogInitializationConflict(
+                    f"Seed SKU '{sku}' is assigned to a different category."
+                )
+
+    return branch_by_name, category_by_name, products_by_sku, expected_product_branches
+
+
+def initialize_catalog_once(db: Session) -> tuple[int, int] | None:
+    """Insert only missing sample catalog rows once, without altering existing rows."""
+    try:
+        if db.get_bind().dialect.name == "postgresql":
+            db.execute(text("SELECT pg_advisory_xact_lock(741327, 1)"))
+
+        connection = db.connection()
+        marker_table_exists = inspect(connection).has_table("foodhub_initializations")
+        if marker_table_exists:
+            completed = db.execute(
+                text(
+                    "SELECT 1 FROM foodhub_initializations "
+                    "WHERE name = :name"
+                ),
+                {"name": CATALOG_INITIALIZATION_NAME},
+            ).first()
+            if completed:
+                db.rollback()
+                return None
+
+        (
+            branch_by_name,
+            category_by_name,
+            products_by_sku,
+            expected_product_branches,
+        ) = _inspect_catalog_seed_state(db)
+
+        if not marker_table_exists:
+            db.execute(text(
+                "CREATE TABLE foodhub_initializations ("
+                "name VARCHAR(100) PRIMARY KEY, "
+                "completed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            ))
+
+        created_categories = 0
+        for name in CATEGORIES:
+            if name in category_by_name:
+                continue
+            category = Category(
+                name=name,
+                slug=slugify(name),
+                is_active=True,
+                branch_id=None,
+            )
+            db.add(category)
+            db.flush()
+            category_by_name[name] = category
+            created_categories += 1
+
+        created_products = 0
+        for (
+            name,
+            description,
+            price,
+            sale_price,
+            category_name,
+            sku,
+            stock,
+            featured,
+            popular,
+        ) in PRODUCTS:
+            if sku in products_by_sku:
+                continue
+            branch_name = expected_product_branches[sku]
+            db.add(Product(
+                name=name,
+                description=description,
+                price=price,
+                sale_price=sale_price,
+                category_id=category_by_name[category_name].id,
+                image=None,
+                sku=sku,
+                stock=stock,
+                featured=featured,
+                popular=popular,
+                available=True,
+                branch_id=branch_by_name[branch_name].id,
+            ))
+            created_products += 1
+
+        db.flush()
+        db.execute(
+            text("INSERT INTO foodhub_initializations (name) VALUES (:name)"),
+            {"name": CATALOG_INITIALIZATION_NAME},
+        )
+        db.commit()
+        return created_categories, created_products
+    except Exception:
+        db.rollback()
+        raise
 
 
 def validate_existing_admin_assignments():

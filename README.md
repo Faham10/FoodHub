@@ -136,7 +136,7 @@ Keep `backend/.env` private; `.env.example` is a template only. Configure two se
 
 ### Optional development seed
 
-Tables and the two canonical branches are initialized on app startup. Branch initialization is idempotent, preserves existing branch IDs and data, and does not create branches over unmapped legacy orders. The seed script adds sample categories, products, and missing branch-admin accounts; it does not change existing admin assignments, assigned products, or orders. Review its behavior and existing account/product assignments before running it against an existing database. For production, run it only when missing catalog/admin data needs to be seeded, with the two branch-admin credentials configured privately in Render.
+Tables and the two canonical branches are initialized on app startup. Branch initialization is idempotent, preserves existing branch IDs and data, and does not create branches over unmapped legacy orders. The general seed script adds sample categories, products, and missing branch-admin accounts. Review its behavior and existing account/product assignments before running it against an existing database. Do not use the general seed command for one-time production catalog initialization; use the guarded procedure below.
 
 ```bash
 python -m app.seed
@@ -148,6 +148,20 @@ On a new database, this creates:
 - Two branch-admin accounts using credentials configured privately in `backend/.env` (passwords are bcrypt-hashed)
 - Branch seeding reuses the existing Kallu Chock and Korangi 2 rows and refuses to duplicate legacy/canonical pairs.
 - Existing orders retain their branch assignments; unassigned orders are backfilled by the schema migration using their products when possible.
+
+### One-time catalog initialization on Render Free
+
+Use this deployment-triggered option when Render Shell is unavailable. It inserts only missing records from the 12-category/34-product sample catalog; it does not create admins, update existing rows, or reassign products. The existing application startup schema migration still runs as usual.
+
+Before enabling it, confirm in Render that the service is connected to the intended production database and that `/api/branches` contains exactly the existing Kallu Chock and `Kornagi 2` rows. `Kornagi 2` is the current spelling in the backend's canonical branch configuration; this initializer deliberately does not rename or repair branch records. On startup it checks the two canonical active branches, all account and order branch assignments, existing product/category relationships, and every existing seed SKU. Any mismatch stops catalog insertion and writes a sanitized reason to the Render service log. No catalog rows or completion marker are written on a preflight conflict. On a clean preflight, missing catalog rows and a persistent completion marker are committed together; a PostgreSQL advisory transaction lock prevents concurrent instances from seeding at the same time.
+
+1. In Render, open the backend Web Service's **Environment** settings and add `INITIALIZE_CATALOG_ON_STARTUP` with value `true`. Do not change or copy `DATABASE_URL`, and do not add credentials to source code or logs.
+2. Save the environment change and deploy the current commit. The default remains `false`, so ordinary startups do not seed.
+3. Check Render startup logs for `One-time catalog initialization completed` and its inserted counts. If they report that initialization stopped, leave the flag unchanged and resolve the reported data conflict manually before trying again. Do not remove the completion marker to repeat the operation.
+4. Verify the live `/api/branches` response, then request `/api/categories?active_only=true&branch_id=<branch-id>` and `/api/products?branch_id=<branch-id>` for each returned branch ID. Expect 17 products per branch and the shared active categories; also confirm that each product's `branch_id` matches the requested branch. Load the deployed Vercel menu and switch between branches to verify the corresponding products appear.
+5. Immediately set `INITIALIZE_CATALOG_ON_STARTUP` back to `false` in Render and redeploy. The database marker also prevents a second run if the flag is accidentally left enabled, but disabling it is required operational cleanup.
+
+Production data is not seeded by local tests or by this repository change. Do not report success until the deployment logs and both branches' live API responses and deployed menu have been checked.
 
 ### Run the backend
 
