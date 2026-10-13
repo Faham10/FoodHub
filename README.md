@@ -180,7 +180,7 @@ npm run build
 npm run preview
 ```
 
-For Vercel, set `VITE_API_URL=https://foodhub-6rnn.onrender.com/api` in the project’s build environment and redeploy after changing it. The Render backend must allow the Vercel site origin through `FRONTEND_URL`.
+For Vercel, use `frontend` as the project root, set `VITE_API_URL=https://foodhub-6rnn.onrender.com/api` in the project’s build environment, and redeploy after changing it. `frontend/vercel.json` rewrites client-side routes to the app entry point so direct links and page refreshes work. The Render backend must allow the Vercel site origin through `FRONTEND_URL`.
 
 ---
 
