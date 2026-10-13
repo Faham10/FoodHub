@@ -25,7 +25,7 @@ export default function ProductCard({ product }) {
   return (
     <Link to={`/product/${product.id}`} className="group card overflow-hidden flex flex-col h-full hover:shadow-lift transition-shadow">
       <div className="relative aspect-[4/3] overflow-hidden">
-        <ProductImage src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+        <ProductImage src={product.image} alt={product.name} category={product.category?.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         {discount > 0 && (
           <span className="absolute top-3 left-3 bg-ember-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
             -{discount}%

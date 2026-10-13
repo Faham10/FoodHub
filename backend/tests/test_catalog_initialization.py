@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
+from app.config import Settings
 from app.models.branch import Branch
 from app.models.category import Category
 from app.models.order import Order
@@ -12,6 +13,7 @@ from app.models.user import User, UserRole
 from app.seed import (
     BRANCH_NAMES,
     CATEGORIES,
+    CATEGORY_IMAGE_URLS,
     PRODUCTS,
     CatalogInitializationConflict,
     initialize_catalog_once,
@@ -45,6 +47,19 @@ def add_expected_branches(db):
     return branches
 
 
+def test_catalog_startup_environment_flag_is_parsed_as_boolean(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    monkeypatch.setenv("SECRET_KEY", "test-only-key")
+    monkeypatch.setenv("INITIALIZE_CATALOG_ON_STARTUP", "true")
+
+    enabled_settings = Settings(_env_file=None)
+    assert enabled_settings.INITIALIZE_CATALOG_ON_STARTUP is True
+
+    monkeypatch.delenv("INITIALIZE_CATALOG_ON_STARTUP")
+    disabled_settings = Settings(_env_file=None)
+    assert disabled_settings.INITIALIZE_CATALOG_ON_STARTUP is False
+
+
 def test_initializes_catalog_once_with_branch_isolation(db_session):
     db = db_session
     branches = add_expected_branches(db)
@@ -56,6 +71,8 @@ def test_initializes_catalog_once_with_branch_isolation(db_session):
         expected_name = BRANCH_NAMES["Branch 1" if index % 2 == 0 else "Branch 2"]
         product = db.query(Product).filter(Product.sku == sku).one()
         assert product.branch_id == branches[expected_name].id
+        category_name = next(item[4] for item in PRODUCTS if item[5] == sku)
+        assert product.image == CATEGORY_IMAGE_URLS[category_name]
     assert db.query(Product).filter(
         Product.branch_id == branches[BRANCH_NAMES["Branch 1"]].id
     ).count() == 17
@@ -82,6 +99,7 @@ def test_preserves_existing_matching_product_without_overwriting(db_session):
         sku="BUR-001",
         stock=2,
         available=False,
+        image="https://example.test/existing-image.jpg",
     )
     db.add(product)
     db.flush()
@@ -89,11 +107,12 @@ def test_preserves_existing_matching_product_without_overwriting(db_session):
     assert initialize_catalog_once(db) == (len(CATEGORIES) - 1, len(PRODUCTS) - 1)
 
     saved = db.query(Product).filter(Product.sku == "BUR-001").one()
-    assert (saved.name, saved.price, saved.stock, saved.available) == (
+    assert (saved.name, saved.price, saved.stock, saved.available, saved.image) == (
         "Existing custom product",
         999,
         2,
         False,
+        "https://example.test/existing-image.jpg",
     )
 
 

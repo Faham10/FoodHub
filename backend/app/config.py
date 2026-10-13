@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -17,7 +18,11 @@ class Settings(BaseSettings):
     BRANCH2_ADMIN_PASSWORD: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).resolve().parents[1] / ".env",
+        env_file=(
+            None
+            if os.environ.get("FOODHUB_DISABLE_DOTENV") == "1"
+            else Path(__file__).resolve().parents[1] / ".env"
+        ),
         extra="ignore",
     )
 

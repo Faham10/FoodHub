@@ -35,6 +35,21 @@ BRANCH_NAMES = {
     "Branch 2": "Kornagi 2",
 }
 
+CATEGORY_IMAGE_URLS = {
+    "Burgers": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=640&q=80",
+    "Pizza": "https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=640&q=80",
+    "Fries": "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?auto=format&fit=crop&w=640&q=80",
+    "Shawarma": "https://images.unsplash.com/photo-1719282431565-3b30bb7d2658?auto=format&fit=crop&w=640&q=80",
+    "Chicken": "https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?auto=format&fit=crop&w=640&q=80",
+    "Sandwiches": "https://images.unsplash.com/photo-1700937244987-92488ab2ada5?auto=format&fit=crop&w=640&q=80",
+    "Nuggets": "https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?auto=format&fit=crop&w=640&q=80",
+    "Wings": "https://images.unsplash.com/photo-1567620832903-9fc6debc209f?auto=format&fit=crop&w=640&q=80",
+    "Rolls": "https://images.unsplash.com/photo-1719282431565-3b30bb7d2658?auto=format&fit=crop&w=640&q=80",
+    "Drinks": "https://images.unsplash.com/photo-1527960471264-932f39eb5846?auto=format&fit=crop&w=640&q=80",
+    "Desserts": "https://images.unsplash.com/photo-1551024506-0bccd828d307?auto=format&fit=crop&w=640&q=80",
+    "Deals": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=640&q=80",
+}
+
 # (name, description, price, sale_price, category, sku, stock, featured, popular)
 PRODUCTS = [
     ("Classic Zinger Burger", "Crispy fried chicken fillet, lettuce and mayo in a soft bun.", 650, 550, "Burgers", "BUR-001", 120, True, True),
@@ -254,7 +269,7 @@ def initialize_catalog_once(db: Session) -> tuple[int, int] | None:
                 price=price,
                 sale_price=sale_price,
                 category_id=category_by_name[category_name].id,
-                image=None,
+                image=CATEGORY_IMAGE_URLS[category_name],
                 sku=sku,
                 stock=stock,
                 featured=featured,
@@ -429,7 +444,7 @@ def run():
                 price=price,
                 sale_price=sale_price,
                 category_id=category_map[cat_name].id,
-                image=None,
+                image=CATEGORY_IMAGE_URLS[cat_name],
                 sku=sku,
                 stock=stock,
                 featured=featured,

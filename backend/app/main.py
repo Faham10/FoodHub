@@ -27,8 +27,10 @@ ensure_branch_schema()
 @app.on_event("startup")
 def initialize_catalog_on_startup():
     if not settings.INITIALIZE_CATALOG_ON_STARTUP:
+        logger.info("One-time catalog initialization is disabled; skipping.")
         return
 
+    logger.info("One-time catalog initialization is enabled; checking database state.")
     db = SessionLocal()
     try:
         result = initialize_catalog_once(db)
