@@ -5,8 +5,9 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useBranch } from '../context/BranchContext.jsx'
 import { useCart } from '../context/CartContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
-import api, { resolveMediaUrl } from '../services/api.js'
+import api from '../services/api.js'
 import EmptyState from '../components/EmptyState.jsx'
+import ProductImage from '../components/ProductImage.jsx'
 import { formatPKR } from '../utils/format.js'
 import { setActiveGuestOrderToken } from '../utils/guestOrderTracking.js'
 import { formatBranchName } from '../utils/branch.js'
@@ -268,7 +269,12 @@ export default function Checkout() {
                 {cart.items.map((item) => (
                   <div key={item.id} className="flex items-center gap-3 py-4">
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-cream-100">
-                      <img src={resolveMediaUrl(item.product.image) || undefined} alt={item.product.name} className="h-full w-full object-cover" />
+                      <ProductImage
+                        src={item.product.image}
+                        alt={item.product.name}
+                        category={item.product.category?.name}
+                        className="h-full w-full object-cover"
+                      />
                       <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ink-950 px-1 text-[10px] font-bold text-white">{item.quantity}</span>
                     </div>
                     <div className="min-w-0 flex-1">
