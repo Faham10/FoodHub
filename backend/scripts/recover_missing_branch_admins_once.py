@@ -67,6 +67,41 @@ def classify_existing_users(users, branches_by_name, emails, passwords, UserRole
     return "already_complete"
 
 
+def validate_database_role(privileges) -> None:
+    elevated_flags = (
+        "is_superuser",
+        "can_create_roles",
+        "is_database_owner",
+        "is_users_table_owner",
+        "member_of_database_owner",
+        "member_of_users_table_owner",
+    )
+    if any(privileges[name] for name in elevated_flags):
+        raise RecoveryAbort(
+            "Role preflight failed: use a dedicated non-owner, non-superuser role."
+        )
+
+    required_privileges = {
+        "uses_public_schema": "public schema selection",
+        "can_read_users": "SELECT on public.users",
+        "can_insert_users": "INSERT on public.users",
+        "can_use_user_id_sequence": "USAGE on the public.users ID sequence",
+        "can_read_branches": "SELECT on public.branches",
+        "can_use_public_schema": "USAGE on schema public",
+        "can_use_role_enum": "USAGE on the public.users role enum",
+        "public_tables_resolved": "public.users and public.branches resolution",
+    }
+    missing = [
+        label
+        for flag, label in required_privileges.items()
+        if not privileges[flag]
+    ]
+    if missing:
+        raise RecoveryAbort(
+            "Role preflight failed; missing: " + ", ".join(missing) + "."
+        )
+
+
 def preflight(db, Branch, User, UserRole, verify):
     from sqlalchemy import func, text
 
@@ -116,15 +151,7 @@ def preflight(db, Branch, User, UserRole, verify):
     )).one_or_none()
     if privilege is None:
         raise RecoveryAbort("Role preflight failed: database role could not be verified.")
-    if any(privilege[1:7]):
-        raise RecoveryAbort(
-            "Role preflight failed: use a dedicated non-owner, non-superuser write role."
-        )
-    if not all(privilege[0:1] + privilege[7:]):
-        raise RecoveryAbort(
-            "Role preflight failed: wrong schema/table or missing table, sequence, "
-            "schema, or enum permissions."
-        )
+    validate_database_role(privilege._mapping)
 
     role_labels = {
         row[0]

@@ -7,6 +7,7 @@ from scripts.recover_missing_branch_admins_once import (
     RecoveryAbort,
     classify_existing_users,
     safe_error_summary,
+    validate_database_role,
 )
 
 
@@ -105,3 +106,44 @@ def test_recovery_error_summary_excludes_database_error_details():
     assert summary == "DatabaseError (PostgreSQL SQLSTATE 42501)"
     assert "sensitive" not in summary
     assert "password" not in summary
+
+
+def valid_database_role_privileges():
+    return {
+        "is_superuser": False,
+        "can_create_roles": False,
+        "is_database_owner": False,
+        "is_users_table_owner": False,
+        "member_of_database_owner": False,
+        "member_of_users_table_owner": False,
+        "uses_public_schema": True,
+        "can_read_users": True,
+        "can_insert_users": True,
+        "can_use_user_id_sequence": True,
+        "can_read_branches": True,
+        "can_use_public_schema": True,
+        "can_use_role_enum": True,
+        "public_tables_resolved": True,
+    }
+
+
+def test_database_role_requires_insert_and_role_enum_usage():
+    privileges = valid_database_role_privileges()
+    privileges["can_insert_users"] = False
+    privileges["can_use_role_enum"] = False
+
+    with pytest.raises(RecoveryAbort) as exc_info:
+        validate_database_role(privileges)
+
+    message = str(exc_info.value)
+    assert "INSERT on public.users" in message
+    assert "USAGE on the public.users role enum" in message
+    assert "password" not in message
+
+
+def test_database_role_rejects_owner_or_elevated_role():
+    privileges = valid_database_role_privileges()
+    privileges["is_users_table_owner"] = True
+
+    with pytest.raises(RecoveryAbort, match="non-owner"):
+        validate_database_role(privileges)
