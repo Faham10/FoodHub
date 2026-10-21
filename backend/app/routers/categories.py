@@ -30,15 +30,27 @@ def _with_count(db: Session, category: Category, branch_id: int | None = None) -
 
 @router.get("", response_model=list[CategoryOut])
 def list_categories(active_only: bool = False, branch_categories_only: bool = False, branch_id: int | None = Query(default=None, ge=1), db: Session = Depends(get_db), current_user: User | None = Depends(get_optional_user)):
-    query = db.query(Category)
     branch = current_user.branch_id if current_user and current_user.role.value == "branch_admin" else branch_id
     if branch is None:
         raise HTTPException(status_code=400, detail="Select a branch before browsing categories")
-    query = query.filter(Category.branch_id == branch if branch_categories_only else or_(Category.branch_id == branch, Category.branch_id.is_(None)))
+    query = db.query(Category, func.count(Product.id).label("product_count")).outerjoin(
+        Product,
+        (Product.category_id == Category.id) & (Product.branch_id == branch),
+    )
+    query = query.filter(
+        Category.branch_id == branch
+        if branch_categories_only
+        else or_(Category.branch_id == branch, Category.branch_id.is_(None))
+    )
     if active_only:
         query = query.filter(Category.is_active == True)  # noqa: E712
-    categories = query.order_by(Category.name).all()
-    return [_with_count(db, c, branch) for c in categories]
+    categories = query.group_by(Category.id).order_by(Category.name).all()
+    results = []
+    for category, count in categories:
+        out = CategoryOut.model_validate(category)
+        out.product_count = count
+        results.append(out)
+    return results
 
 
 @router.get("/{category_id}", response_model=CategoryOut)

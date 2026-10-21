@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,6 +17,7 @@ from app.models.promotion import Promotion, PromotionRedemption
 from app.models.user import User, UserRole
 from app.routers.admin import branch_sales_report
 from app.routers.branches import DeliverySettingsUpdate, update_admin_delivery_settings
+from app.routers.categories import list_categories
 from app.routers.orders import place_order
 from app.routers.promotions import (
     archive_promotion,
@@ -46,6 +47,60 @@ def db_session():
         Base.metadata.drop_all(bind=engine)
         engine.dispose()
 
+
+def test_category_list_counts_branch_products_in_one_query(db_session):
+    branch = Branch(name="Category Query Branch", is_active=True)
+    other_branch = Branch(name="Other Category Query Branch", is_active=True)
+    category_with_products = Category(
+        name="Meals", slug="meals", branch=branch, is_active=True
+    )
+    empty_category = Category(
+        name="Drinks", slug="drinks", branch=branch, is_active=True
+    )
+    db_session.add_all([branch, other_branch, category_with_products, empty_category])
+    db_session.flush()
+    db_session.add_all([
+        Product(
+            name=f"Meal {index}",
+            price=100,
+            category_id=category_with_products.id,
+            branch_id=branch.id,
+            sku=f"MEAL-{index}",
+        )
+        for index in range(2)
+    ])
+    db_session.add(Product(
+        name="Other branch meal",
+        price=100,
+        category_id=category_with_products.id,
+        branch_id=other_branch.id,
+        sku="OTHER-BRANCH-MEAL",
+    ))
+    db_session.commit()
+    branch_id = branch.id
+
+    select_statements = []
+
+    def count_selects(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    event.listen(db_session.bind, "before_cursor_execute", count_selects)
+    try:
+        result = list_categories(
+            active_only=True,
+            branch_id=branch_id,
+            db=db_session,
+            current_user=None,
+        )
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", count_selects)
+
+    assert {category.name: category.product_count for category in result} == {
+        "Drinks": 0,
+        "Meals": 2,
+    }
+    assert len(select_statements) == 1
 
 def make_checkout_fixture(db):
     branches = [

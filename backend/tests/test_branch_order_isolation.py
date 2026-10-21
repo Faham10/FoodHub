@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from fastapi import HTTPException
@@ -424,8 +424,21 @@ def test_branch_orders_history_admin_stats_and_access_are_isolated(db_session):
         admin=admins[0],
     ) == []
 
-    first_stats = dashboard(db=db, admin=admins[0])
+    sales_queries = []
+
+    def capture_daily_sales_query(_connection, _cursor, statement, _parameters, _context, _many):
+        normalized = statement.lower()
+        if "group by date(" in normalized and "orders.created_at" in normalized:
+            sales_queries.append(statement)
+
+    event.listen(db.bind, "before_cursor_execute", capture_daily_sales_query)
+    try:
+        first_stats = dashboard(db=db, admin=admins[0])
+    finally:
+        event.remove(db.bind, "before_cursor_execute", capture_daily_sales_query)
     second_stats = dashboard(db=db, admin=admins[1])
+    assert len(sales_queries) == 1
+    assert len(first_stats["sales_overview"]) == 7
     assert first_stats["total_orders"] == 3
     assert first_stats["total_revenue"] == pytest.approx(first.total + fifth.total)
     assert first_stats["order_type_counts"] == {

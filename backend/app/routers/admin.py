@@ -205,16 +205,32 @@ def dashboard(db: Session = Depends(get_db), admin: User = Depends(get_current_a
 
     # Last 7 days sales overview
     today = datetime.utcnow().date()
-    sales_overview = []
-    for i in range(6, -1, -1):
-        day = today - timedelta(days=i)
-        day_total = (
-            db.query(func.coalesce(func.sum(Order.total), 0))
-            .filter(func.date(Order.created_at) == day, Order.branch_id == admin.branch_id, Order.order_status != OrderStatus.cancelled)
-            .scalar()
-            or 0
+    sales_start = datetime.combine(today - timedelta(days=6), datetime.min.time())
+    sales_end = datetime.combine(today + timedelta(days=1), datetime.min.time())
+    daily_totals = (
+        db.query(
+            func.date(Order.created_at).label("day"),
+            func.sum(Order.total).label("total"),
         )
-        sales_overview.append({"date": day.isoformat(), "total": float(day_total)})
+        .filter(
+            Order.branch_id == admin.branch_id,
+            Order.created_at >= sales_start,
+            Order.created_at < sales_end,
+            Order.order_status != OrderStatus.cancelled,
+        )
+        .group_by(func.date(Order.created_at))
+        .all()
+    )
+    totals_by_day = {str(row.day): float(row.total or 0) for row in daily_totals}
+    sales_overview = [
+        {
+            "date": (today - timedelta(days=offset)).isoformat(),
+            "total": totals_by_day.get(
+                (today - timedelta(days=offset)).isoformat(), 0.0
+            ),
+        }
+        for offset in range(6, -1, -1)
+    ]
 
     return {
         "total_orders": total_orders,

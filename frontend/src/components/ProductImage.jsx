@@ -37,6 +37,8 @@ export default function ProductImage({ src, alt, category, className = '' }) {
       src={url}
       alt={alt}
       className={className}
+      loading="lazy"
+      decoding="async"
       onError={() => setFailedUrl(url)}
     />
   )
